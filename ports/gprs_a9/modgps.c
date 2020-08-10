@@ -61,7 +61,7 @@ void modgps_notify_gps_update(API_Event_t* event) {
     GPS_Update(event->pParam1,event->param1);
 
     if (gps_callback && gps_callback != mp_const_none) {
-        mp_sched_schedule(gps_callback);
+        mp_sched_schedule(gps_callback, MP_OBJ_NEW_SMALL_INT(0));
     }
 }
 
@@ -119,7 +119,7 @@ STATIC mp_obj_t modgps_on(size_t n_args, const mp_obj_t *arg) {
         }
         OS_Sleep(100);
     }
-    if (gpsInfo->rmc.latitude.value == 0) {
+    if (timeout > 0 && gpsInfo->rmc.latitude.value == 0) {
         mp_raise_GPSError("Failed to start GPS");
     }
     return mp_const_none;
