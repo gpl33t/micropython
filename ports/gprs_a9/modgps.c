@@ -27,6 +27,7 @@
  */
 
 #include "modgps.h"
+#include "timeout.h"
 
 #include "py/nlr.h"
 #include "py/obj.h"
@@ -42,6 +43,8 @@
 #include "gps.h"
 #include "minmea.h"
 #include "time.h"
+
+#include "py/mperrno.h"
 
 STATIC mp_obj_t modgps_off(void);
 mp_obj_t gps_callback = mp_const_none;
@@ -130,16 +133,8 @@ STATIC mp_obj_t modgps_on(size_t n_args, const mp_obj_t *arg) {
     GPS_SetSearchMode(!!(search_mode & USE_GPS), !!(search_mode & USE_GLONASS),
                      !!(search_mode & USE_BEIDOU), !!(search_mode & USE_GALILEO));
 
-    clock_t time = clock();
-    while (clock() - time < timeout) {
-        if (gpsInfo->rmc.latitude.value != 0) {
-            break;
-        }
-        OS_Sleep(100);
-    }
-    if (timeout > 0 && gpsInfo->rmc.latitude.value == 0) {
-        mp_raise_GPSError("Failed to start GPS");
-    }
+    WAIT_UNTIL(gpsInfo->rmc.latitude.value, timeout, 100, mp_raise_OSError(MP_ETIMEDOUT));
+
     return mp_const_none;
 }
 
@@ -165,7 +160,7 @@ STATIC mp_obj_t modgps_get_firmware_version(void) {
     // ========================================
     char buffer[300];
     if (!GPS_GetVersion(buffer, 150)) {
-        mp_raise_GPSError("Failed to get the firmware version: did you run gps.on()?");
+        mp_raise_ValueError("No firmware info");
         return mp_const_none;
     }
     return mp_obj_new_str(buffer, strlen(buffer));
@@ -242,10 +237,173 @@ STATIC mp_obj_t modgps_time(void) {
 
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(modgps_time_obj, modgps_time);
 
+STATIC mp_obj_t _get_time(struct minmea_date date, struct minmea_time time) {
+    mp_uint_t result = timeutils_mktime(date.year + 2000, date.month, date.day, time.hours, time.minutes, time.seconds);
+    // Note: the module may report dates between 1980 and 2000 as well: they will be mapped onto the time frame 2080-2100
+    return mp_obj_new_int_from_uint(result);
+}
+
+STATIC mp_obj_t _get_float(struct minmea_float f) {
+    return mp_obj_new_float(minmea_tofloat(&f));
+}
+
+STATIC mp_obj_t _get_prn(int* prn) {
+    uint8_t prn_u[12];
+    for (int i = 0; i < 12; i++) prn_u[i] = prn[i];
+    return mp_obj_new_bytearray(sizeof(prn), prn);
+}
+
+STATIC mp_obj_t _get_sat_info(struct minmea_sat_info s) {
+    mp_obj_t tuple[4] = {
+        mp_obj_new_int(s.nr),
+        mp_obj_new_int(s.elevation),
+        mp_obj_new_int(s.azimuth),
+        mp_obj_new_int(s.snr),
+    };
+    return mp_obj_new_tuple(sizeof(tuple) / sizeof(mp_obj_t), tuple);
+}
+
+STATIC mp_obj_t _get_rmc(struct minmea_sentence_rmc s) {
+    mp_obj_t tuple[7] = {
+        _get_time(s.date, s.time),
+        mp_obj_new_bool(s.valid),
+        _get_float(s.latitude),
+        _get_float(s.longitude),
+        _get_float(s.speed),
+        _get_float(s.course),
+        _get_float(s.variation),
+    };
+    return mp_obj_new_tuple(sizeof(tuple) / sizeof(mp_obj_t), tuple);
+}
+
+STATIC mp_obj_t _get_gsa(struct minmea_sentence_gsa s) {
+    mp_obj_t tuple[6] = {
+        mp_obj_new_int_from_uint(s.mode),
+        mp_obj_new_int(s.fix_type),
+        _get_prn(s.sats),
+        _get_float(s.pdop),
+        _get_float(s.hdop),
+        _get_float(s.vdop),
+    };
+    return mp_obj_new_tuple(sizeof(tuple) / sizeof(mp_obj_t), tuple);
+}
+
+STATIC mp_obj_t _get_gga(struct minmea_sentence_gga s) {
+    struct minmea_date no_date = {1, 1, 0};
+
+    mp_obj_t tuple[11] = {
+        _get_time(no_date, s.time),
+        _get_float(s.latitude),
+        _get_float(s.longitude),
+        mp_obj_new_int(s.fix_quality),
+        mp_obj_new_int(s.satellites_tracked),
+        _get_float(s.hdop),
+        _get_float(s.altitude),
+        mp_obj_new_int_from_uint(s.altitude_units),
+        _get_float(s.height),
+        mp_obj_new_int_from_uint(s.height_units),
+        _get_float(s.dgps_age),
+    };
+    return mp_obj_new_tuple(sizeof(tuple) / sizeof(mp_obj_t), tuple);
+}
+
+STATIC mp_obj_t _get_gll(struct minmea_sentence_gll s) {
+    struct minmea_date no_date = {1, 1, 0};
+
+    mp_obj_t tuple[5] = {
+        _get_float(s.latitude),
+        _get_float(s.longitude),
+        _get_time(no_date, s.time),
+        mp_obj_new_int_from_uint(s.status),
+        mp_obj_new_int_from_uint(s.mode),
+    };
+    return mp_obj_new_tuple(sizeof(tuple) / sizeof(mp_obj_t), tuple);
+}
+
+STATIC mp_obj_t _get_gst(struct minmea_sentence_gst s) {
+    struct minmea_date no_date = {1, 1, 0};
+
+    mp_obj_t tuple[8] = {
+        _get_time(no_date, s.time),
+        _get_float(s.rms_deviation),
+        _get_float(s.semi_major_deviation),
+        _get_float(s.semi_minor_deviation),
+        _get_float(s.semi_major_orientation),
+        _get_float(s.latitude_error_deviation),
+        _get_float(s.longitude_error_deviation),
+        _get_float(s.altitude_error_deviation),
+    };
+    return mp_obj_new_tuple(sizeof(tuple) / sizeof(mp_obj_t), tuple);
+}
+
+STATIC mp_obj_t _get_gsv(struct minmea_sentence_gsv s) {
+    mp_obj_t sat_info_tuple[4];
+    for (int i = 0; i < 4; i++)
+        sat_info_tuple[i] = _get_sat_info(s.sats[i]);
+
+    mp_obj_t tuple[4] = {
+        mp_obj_new_int(s.total_msgs),
+        mp_obj_new_int(s.msg_nr),
+        mp_obj_new_int(s.total_sats),
+        mp_obj_new_tuple(4, sat_info_tuple),
+    };
+    return mp_obj_new_tuple(sizeof(tuple) / sizeof(mp_obj_t), tuple);
+}
+
+STATIC mp_obj_t _get_vtg(struct minmea_sentence_vtg s) {
+    mp_obj_t tuple[5] = {
+        _get_float(s.true_track_degrees),
+        _get_float(s.magnetic_track_degrees),
+        _get_float(s.speed_knots),
+        _get_float(s.speed_kph),
+        mp_obj_new_int_from_uint((uint8_t) s.faa_mode),
+    };
+    return mp_obj_new_tuple(sizeof(tuple) / sizeof(mp_obj_t), tuple);
+}
+
+STATIC mp_obj_t _get_zda(struct minmea_sentence_zda s) {
+    mp_obj_t tuple[3] = {
+        _get_time(s.date, s.time),
+        mp_obj_new_int(s.hour_offset),
+        mp_obj_new_int(s.minute_offset),
+    };
+    return mp_obj_new_tuple(sizeof(tuple) / sizeof(mp_obj_t), tuple);
+}
+
+STATIC mp_obj_t modgps_nmea_data(void) {
+    // ========================================
+    // NMEA data in a tuple.
+    // Returns:
+    //     A tuple with rmc, gsa, gga, gll,
+    //     gst, gsv, vtg and zda messages.
+    // ========================================
+    REQUIRES_GPS_ON;
+
+    mp_obj_t gsa_tuple[GPS_PARSE_MAX_GSA_NUMBER];
+    for (int i = 0; i < GPS_PARSE_MAX_GSA_NUMBER; i++)
+        gsa_tuple[i] = _get_gsa(gpsInfo->gsa[i]);
+
+    mp_obj_t gsv_tuple[GPS_PARSE_MAX_GSV_NUMBER];
+    for (int i = 0; i < GPS_PARSE_MAX_GSV_NUMBER; i++)
+        gsv_tuple[i] = _get_gsv(gpsInfo->gsv[i]);
+
+    mp_obj_t tuple[8] = {
+        _get_rmc(gpsInfo->rmc),
+        mp_obj_new_tuple(GPS_PARSE_MAX_GSA_NUMBER, gsa_tuple),
+        _get_gga(gpsInfo->gga),
+        _get_gll(gpsInfo->gll),
+        _get_gst(gpsInfo->gst),
+        mp_obj_new_tuple(GPS_PARSE_MAX_GSV_NUMBER, gsv_tuple),
+        _get_vtg(gpsInfo->vtg),
+        _get_zda(gpsInfo->zda),
+    };
+    return mp_obj_new_tuple(sizeof(tuple) / sizeof(mp_obj_t), tuple);
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(modgps_nmea_data_obj, modgps_nmea_data);
+
 STATIC const mp_map_elem_t mp_module_gps_globals_table[] = {
     { MP_OBJ_NEW_QSTR(MP_QSTR___name__), MP_OBJ_NEW_QSTR(MP_QSTR_gps) },
-
-    { MP_OBJ_NEW_QSTR(MP_QSTR_GPSError), (mp_obj_t)MP_ROM_PTR(&mp_type_GPSError) },
 
     { MP_OBJ_NEW_QSTR(MP_QSTR_on), (mp_obj_t)&modgps_on_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_off), (mp_obj_t)&modgps_off_obj },
@@ -254,7 +412,11 @@ STATIC const mp_map_elem_t mp_module_gps_globals_table[] = {
     { MP_OBJ_NEW_QSTR(MP_QSTR_get_last_location), (mp_obj_t)&modgps_get_last_location_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_get_satellites), (mp_obj_t)&modgps_get_satellites_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_time), (mp_obj_t)&modgps_time_obj },
+<<<<<<< HEAD
     { MP_OBJ_NEW_QSTR(MP_QSTR_on_update), (mp_obj_t)&modgps_on_update},
+=======
+    { MP_OBJ_NEW_QSTR(MP_QSTR_nmea_data), (mp_obj_t)&modgps_nmea_data_obj },
+>>>>>>> upstream/master
 };
 
 STATIC MP_DEFINE_CONST_DICT(mp_module_gps_globals, mp_module_gps_globals_table);
