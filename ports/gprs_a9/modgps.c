@@ -102,6 +102,23 @@ STATIC mp_obj_t modgps_off(void) {
 
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(modgps_off_obj, modgps_off);
 
+//TODO rewrite GPS_AGPS, download data externally on python level, not in C code.
+STATIC mp_obj_t modgps_update_agps_data(mp_obj_t latitude, mp_obj_t longtitude, mp_obj_t downloadAgps) {
+    // =======================================
+    // Sends lbs coordinates to GPS chip and optionally downloads ephemerides database (AGPS)
+    // Returns:
+    //      true if call was sucessfull
+    //      false otherwise
+    // =======================================
+
+    REQUIRES_GPS_ON;
+
+    bool result = GPS_AGPS(mp_obj_get_float(latitude), mp_obj_get_float(longtitude), 0, mp_obj_is_true(downloadAgps));
+    return result ? mp_const_true : mp_const_false;
+}
+
+MP_DEFINE_CONST_FUN_OBJ_3(modgps_update_agps_data_obj, modgps_update_agps_data);
+
 STATIC mp_obj_t modgps_get_firmware_version(void) {
     // ========================================
     // Retrieves firmware version.
@@ -360,6 +377,7 @@ STATIC const mp_map_elem_t mp_module_gps_globals_table[] = {
     { MP_OBJ_NEW_QSTR(MP_QSTR_on), (mp_obj_t)&modgps_on_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_off), (mp_obj_t)&modgps_off_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_get_firmware_version), (mp_obj_t)&modgps_get_firmware_version_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_update_agps_data), (mp_obj_t)&modgps_update_agps_data_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_get_location), (mp_obj_t)&modgps_get_location_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_get_last_location), (mp_obj_t)&modgps_get_last_location_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_get_satellites), (mp_obj_t)&modgps_get_satellites_obj },
