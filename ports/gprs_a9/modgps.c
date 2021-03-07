@@ -47,9 +47,11 @@
 #include "py/mperrno.h"
 
 STATIC mp_obj_t modgps_off(void);
+mp_obj_t gps_callback = mp_const_none;
 
 void modgps_init0(void) {
     modgps_off();
+    gps_callback = mp_const_none;
 }
 
 // ------
@@ -60,11 +62,43 @@ GPS_Info_t* gpsInfo = NULL;
 
 void modgps_notify_gps_update(API_Event_t* event) {
     GPS_Update(event->pParam1,event->param1);
+
+    if (gps_callback && gps_callback != mp_const_none) {
+        mp_sched_schedule(gps_callback, MP_OBJ_NEW_SMALL_INT(0));
+    }
+}
+
+STATIC mp_obj_t modgps_on_update(mp_obj_t callable) {
+    // ========================================
+    // Sets a callback on GPS update.
+    // Args:
+    //     callback (Callable): a callback to
+    //     execute on GPS data received from UART.
+    // ========================================
+    gps_callback = callable;
+    return mp_const_none;
+}
+
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(modgps_on_update_obj, modgps_on_update);
+
+// ----------
+// Exceptions
+// ----------
+
+MP_DEFINE_EXCEPTION(GPSError, OSError)
+
+NORETURN void mp_raise_GPSError(const char *msg) {
+    mp_raise_msg(&mp_type_GPSError, msg);
 }
 
 // -------
 // Methods
 // -------
+
+#define USE_GPS 1
+#define USE_GLONASS 2
+#define USE_BEIDOU 4
+#define USE_GALILEO 8
 
 STATIC mp_obj_t modgps_on(size_t n_args, const mp_obj_t *arg) {
     // ========================================
@@ -75,22 +109,36 @@ STATIC mp_obj_t modgps_on(size_t n_args, const mp_obj_t *arg) {
     //     ValueError if failed to turn GPS on.
     // ========================================
     uint32_t timeout = 0;
+    uint8_t search_mode = USE_GPS;
+
     if (n_args == 0) {
         timeout = DEFAULT_GPS_TIMEOUT;
-    } else {
-        timeout = mp_obj_get_int(arg[0]);
     }
+    else  {
+        timeout = mp_obj_get_int(arg[0]);
+
+        if (n_args == 2) {
+            search_mode = mp_obj_get_int(arg[1]);
+        }
+
+    }
+
     timeout *= 1000 * CLOCKS_PER_MSEC;
     gpsInfo = Gps_GetInfo();
     gpsInfo->rmc.latitude.value = 0;
     gpsInfo->rmc.longitude.value = 0;
     GPS_Init();
     GPS_Open(NULL);
+
+    GPS_SetSearchMode(!!(search_mode & USE_GPS), !!(search_mode & USE_GLONASS),
+                     !!(search_mode & USE_BEIDOU), !!(search_mode & USE_GALILEO));
+
     WAIT_UNTIL(gpsInfo->rmc.latitude.value, timeout, 100, mp_raise_OSError(MP_ETIMEDOUT));
+
     return mp_const_none;
 }
 
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(modgps_on_obj, 0, 1, modgps_on);
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(modgps_on_obj, 0, 2, modgps_on);
 
 STATIC mp_obj_t modgps_off(void) {
     // ========================================
@@ -382,6 +430,7 @@ STATIC const mp_map_elem_t mp_module_gps_globals_table[] = {
     { MP_OBJ_NEW_QSTR(MP_QSTR_get_last_location), (mp_obj_t)&modgps_get_last_location_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_get_satellites), (mp_obj_t)&modgps_get_satellites_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_time), (mp_obj_t)&modgps_time_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_on_update), (mp_obj_t)&modgps_on_update},
     { MP_OBJ_NEW_QSTR(MP_QSTR_nmea_data), (mp_obj_t)&modgps_nmea_data_obj },
 };
 
