@@ -133,21 +133,23 @@ The purpose of this module is to have an access to high-level networking (SMS, G
 * `NETWORK_FREQ_BAND_GSM_900P`, `NETWORK_FREQ_BAND_GSM_900E`, `NETWORK_FREQ_BAND_GSM_850`, `NETWORK_FREQ_BAND_DCS_1800`, `NETWORK_FREQ_BAND_PCS_1900`, `NETWORK_FREQ_BANDS_ALL`: frequencies;
 * `OPERATOR_STATUS_UNKNOWN`, `OPERATOR_STATUS_AVAILABLE`, `OPERATOR_STATUS_CURRENT`, `OPERATOR_STATUS_DISABLED`: operator statuses;
 * `NETWORK_MODE_MANUAL`, `NETWORK_MODE_AUTO`, `NETWORK_MODE_MANUAL_AUTO`: network registration modes;
-* `SMS_SENT`, `SMS_RECEIVED`: constants for event handler `on_sms`;
+* `SMS_SENT`: constant for event handler `on_sms`;
 * `ENOSIM`, `EREGD`, `ESMSSEND`, `ESMSDROP`, `ESIMDROP`, `EATTACHMENT`, `EACTIVATION`, `ENODIALTONE`, `EBUSY`, `ENOANSWER`, `ENOCARRIER`, `ECALLTIMEOUT`, `ECALLINPROGRESS`, `ECALLUNKNOWN`: extended codes for `OSError`s raised by the module;
 
 #### Classes
 
-* `SMS(phone_number: str, message: str)`: handles SMS messages;
+* `SMS(phone_number: str, message: str[, pn_type: int, index: int, purpose: int])`: handles SMS messages;
   * `.phone_number` (str): phone number (sender or destination);
   * `.message` (str): message contents;
-  * `.status` (int): integer with status bits;
-  * `.inbox` (bool): incoming message if `True`, outgoing message if `False` or unknown status if `None`;
-  * `.unread` (bool): unread message if `True`, previously read message if `False` or unknown status if `None`;
-  * `.sent` (bool): sent message if `True`, not sent message if `False` or unknown status if `None`;
-  * `.send()`: sends a message;
+  * `.purpose` (int): integer with purpose/status bits;
+  * `.is_inbox` (bool): indicates incoming message;
+  * `.is_read` (bool): indicates message was previously read;
+  * `.is_unread` (bool): indicates unread message;
+  * `.is_unsent` (bool): indicates unsent message;
+  * `.send(timeout: int)`: sends a message;
   * `.withdraw()`: withdraws SMS from SIM storage;
   * `.list()` (list) [staticmethod]: all SMS from the SIM card;
+  * `.get_storage_size()` (int, int) [staticmethod]: number of active SMS records and total storage size;
   * ~~`.poll()` (int) [staticmethod]: the number of new SMS received~~ use `on_sms` instead;
 * ~~`CellularError(message: str)`~~ `OSError`, `ValueError`, `RuntimeError` are used instead;
 
@@ -172,9 +174,9 @@ The purpose of this module is to have an access to high-level networking (SMS, G
 * `gprs([apn: {str, bool}[, user: str, pass: str[, timeout: int]]])` (bool): activate (3 or 4 arguments), deactivate (`gprs(False)`) or obtain the status of GPRS (on/off) if no arguments supplied;
 * `dial(tn: {str, bool})`: dial a telephone number if string is supplied or hang up a call if `False`;
 * `ussd(code: str[, timeout: int])` (int, str): USSD request. Unless zero timeout specified, returns USSD response option code and the response text;
-* `on_status_event(callback: Callable)`: sets a callback for network status change. The callback is called with a single integer constant indicating the new network state;
-* `on_sms(callback: Callable)`: sets a callback on SMS sent or received. The callback is called with a single integer constant `SMS_SENT` or `SMS_RECEIVED`;
-* `on_call(callback: Callable)`: sets a callback on call events (incoming, hangup, etc.);
+* `on_status_event(callback: Callable)`: sets a callback `function(status: int)` for network status change;
+* `on_sms(callback: Callable)`: sets a callback `function(sms_or_status)` on SMS sent or received;;
+* `on_call(callback: Callable)`: sets a callback `function(number_or_hangup)` on call events (incoming, hangup, etc.);
 * ~~`network_status_changed()` (bool): indicates whether the network status changed since the last check~~ use `on_status_event` instead;
 * ~~`call()` (list[str], [str, None]): calls missed (1st output) and the incoming call number or `None` if no incoming calls at the moment (2nd output)~~ use `on_call` instead;
 
@@ -257,7 +259,12 @@ This is only available in the A9G module where GPS is a separate chip connected 
 
 Provides power-related functions: power, watchdogs.
 
-* `POWER_ON_CAUSE_ALARM`, `POWER_ON_CAUSE_CHARGE`, `POWER_ON_CAUSE_EXCEPTION`, `POWER_ON_CAUSE_KEY`, `POWER_ON_CAUSE_MAX`, `POWER_ON_CAUSE_RESET`: power-on flags;
+#### Constants
+
+* `POWER_ON_CAUSE_ALARM`, `POWER_ON_CAUSE_CHARGE`, `POWER_ON_CAUSE_EXCEPTION`, `POWER_ON_CAUSE_KEY`, `POWER_ON_CAUSE_MAX`, `POWER_ON_CAUSE_RESET`: power-on flags.
+
+#### Methods
+
 * `reset()`: hard-resets the module;
 * `off()`: powers the module down. **TODO**: By fact, hard-resets the module, at least when USB-powered. Figure out what's wrong;
 * `idle()`: tunes the clock rate down and turns off peripherials;
@@ -266,6 +273,7 @@ Provides power-related functions: power, watchdogs.
 * `watchdog_on(timeout: int)`: arms the hardware watchdog with a timeout in seconds;
 * `watchdog_off()`: disarms the hardware watchdog;
 * `watchdog_reset()`: resets the timer on the hardware watchdog;
+* `on_power_key(callback: Callable)`: sets a callback `function(is_power_key_down: bool)` on power key events.
   
 ### `i2c`
 
@@ -295,4 +303,5 @@ Available platform-specific modules (not installed by default):
 
 * The module halts on fatal errors; create an empty file `.reboot_on_fatal` if a reboot is desired
 * The size of micropython heap is roughly 512 Kb. 400k can be realistically allocated right after hard reset.
+* The external memory card is [mounted under `/t`](https://ai-thinker-open.github.io/GPRS_C_SDK_DOC/en/c-sdk/function-api/file-system.html).
 

@@ -9,6 +9,8 @@
 #include <unistd.h>
 #include "api_sys.h"
 
+#include "api_sys.h"
+
 // options to control how MicroPython is built
 
 
