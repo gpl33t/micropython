@@ -429,6 +429,12 @@ STATIC mp_obj_t machine_pin_irq_call(mp_obj_t self_in, size_t n_args, size_t n_k
 }
 
 
+STATIC const mp_rom_map_elem_t machine_pin_irq_locals_dict_table[] = {
+    { MP_ROM_QSTR(MP_QSTR_irq), MP_ROM_PTR(&machine_pin_irq_obj) },
+};
+
+STATIC MP_DEFINE_CONST_DICT(machine_pin_irq_locals_dict, machine_pin_irq_locals_dict_table);
+
 STATIC const mp_obj_type_t machine_pin_irq_type = {
     { &mp_type_type },
     .name = MP_QSTR_IRQ,
