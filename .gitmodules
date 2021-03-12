@@ -42,3 +42,9 @@
 [submodule "lib/GPRS_C_SDK"]
 	path = lib/GPRS_C_SDK
 	url = https://github.com/pulkin/GPRS_C_SDK.git
+[submodule "lib/libhydrogen"]
+	path = lib/libhydrogen
+	url = https://github.com/jedisct1/libhydrogen.git
+[submodule "lib/pico-sdk"]
+	path = lib/pico-sdk
+	url = https://github.com/raspberrypi/pico-sdk.git

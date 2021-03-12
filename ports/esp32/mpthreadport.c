@@ -34,9 +34,6 @@
 #include "mpthreadport.h"
 
 #include "esp_task.h"
-#if !MICROPY_ESP_IDF_4
-#include "freertos/semphr.h"
-#endif
 
 #if MICROPY_PY_THREAD
 
@@ -83,7 +80,7 @@ void mp_thread_gc_others(void) {
         if (!th->ready) {
             continue;
         }
-        gc_collect_root(th->stack, th->stack_len); // probably not needed
+        gc_collect_root(th->stack, th->stack_len);
     }
     mp_thread_mutex_unlock(&thread_mutex);
 }
@@ -140,16 +137,16 @@ void mp_thread_create_ex(void *(*entry)(void *), void *arg, size_t *stack_size, 
         mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("can't create thread"));
     }
 
-    // adjust the stack_size to provide room to recover from hitting the limit
-    *stack_size -= 1024;
-
     // add thread to linked list of all threads
     th->ready = 0;
     th->arg = arg;
     th->stack = pxTaskGetStackStart(th->id);
-    th->stack_len = *stack_size / sizeof(StackType_t);
+    th->stack_len = *stack_size / sizeof(uintptr_t);
     th->next = thread;
     thread = th;
+
+    // adjust the stack_size to provide room to recover from hitting the limit
+    *stack_size -= 1024;
 
     mp_thread_mutex_unlock(&thread_mutex);
 }
