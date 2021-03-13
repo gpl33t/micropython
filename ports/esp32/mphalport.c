@@ -28,15 +28,11 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <sys/time.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-
-#if MICROPY_ESP_IDF_4
 #include "esp32/rom/uart.h"
-#else
-#include "rom/uart.h"
-#endif
 
 #include "py/obj.h"
 #include "py/objstr.h"
@@ -44,13 +40,14 @@
 #include "py/mpstate.h"
 #include "py/mphal.h"
 #include "extmod/misc.h"
+#include "lib/timeutils/timeutils.h"
 #include "lib/utils/pyexec.h"
 #include "mphalport.h"
 
 TaskHandle_t mp_main_task_handle;
 
 STATIC uint8_t stdin_ringbuf_array[256];
-ringbuf_t stdin_ringbuf = {stdin_ringbuf_array, sizeof(stdin_ringbuf_array)};
+ringbuf_t stdin_ringbuf = {stdin_ringbuf_array, sizeof(stdin_ringbuf_array), 0, 0};
 
 // Check the ESP-IDF error code and raise an OSError if it's not ESP_OK.
 void check_esp_err(esp_err_t code) {
@@ -193,6 +190,14 @@ void mp_hal_delay_us(uint32_t us) {
             mp_handle_pending(true);
         }
     }
+}
+
+uint64_t mp_hal_time_ns(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    uint64_t ns = tv.tv_sec * 1000000000ULL;
+    ns += (uint64_t)tv.tv_usec * 1000ULL;
+    return ns;
 }
 
 // Wake up the main task if it is sleeping

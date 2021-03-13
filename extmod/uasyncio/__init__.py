@@ -7,8 +7,10 @@ __version__ = (3, 0, 0)
 
 _attrs = {
     "wait_for": "funcs",
+    "wait_for_ms": "funcs",
     "gather": "funcs",
     "Event": "event",
+    "ThreadSafeFlag": "event",
     "Lock": "lock",
     "open_connection": "stream",
     "start_server": "stream",

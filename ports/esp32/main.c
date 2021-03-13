@@ -37,11 +37,7 @@
 #include "esp_task.h"
 #include "soc/cpu.h"
 #include "esp_log.h"
-#if MICROPY_ESP_IDF_4
 #include "esp32/spiram.h"
-#else
-#include "esp_spiram.h"
-#endif
 
 #include "py/stackctrl.h"
 #include "py/nlr.h"
@@ -65,7 +61,6 @@
 // MicroPython runs as a task under FreeRTOS
 #define MP_TASK_PRIORITY        (ESP_TASK_PRIO_MIN + 1)
 #define MP_TASK_STACK_SIZE      (16 * 1024)
-#define MP_TASK_STACK_LEN       (MP_TASK_STACK_SIZE / sizeof(StackType_t))
 
 int vprintf_null(const char *format, va_list ap) {
     // do nothing: this is used as a log target during raw repl mode
@@ -75,9 +70,10 @@ int vprintf_null(const char *format, va_list ap) {
 void mp_task(void *pvParameter) {
     volatile uint32_t sp = (uint32_t)get_sp();
     #if MICROPY_PY_THREAD
-    mp_thread_init(pxTaskGetStackStart(NULL), MP_TASK_STACK_LEN);
+    mp_thread_init(pxTaskGetStackStart(NULL), MP_TASK_STACK_SIZE / sizeof(uintptr_t));
     #endif
     uart_init();
+    machine_init();
 
     // TODO: CONFIG_SPIRAM_SUPPORT is for 3.3 compatibility, remove after move to 4.0.
     #if CONFIG_ESP32_SPIRAM_SUPPORT || CONFIG_SPIRAM_SUPPORT
@@ -123,7 +119,10 @@ soft_reset:
     pyexec_frozen_module("_boot.py");
     pyexec_file_if_exists("boot.py");
     if (pyexec_mode_kind == PYEXEC_MODE_FRIENDLY_REPL) {
-        pyexec_file_if_exists("main.py");
+        int ret = pyexec_file_if_exists("main.py");
+        if (ret & PYEXEC_FORCED_EXIT) {
+            goto soft_reset_exit;
+        }
     }
 
     for (;;) {
@@ -139,6 +138,8 @@ soft_reset:
             }
         }
     }
+
+soft_reset_exit:
 
     #if MICROPY_BLUETOOTH_NIMBLE
     mp_bluetooth_deinit();
@@ -156,6 +157,7 @@ soft_reset:
 
     // deinitialise peripherals
     machine_pins_deinit();
+    machine_deinit();
     usocket_events_deinit();
 
     mp_deinit();
@@ -169,7 +171,7 @@ void app_main(void) {
         nvs_flash_erase();
         nvs_flash_init();
     }
-    xTaskCreatePinnedToCore(mp_task, "mp_task", MP_TASK_STACK_LEN, NULL, MP_TASK_PRIORITY, &mp_main_task_handle, MP_TASK_COREID);
+    xTaskCreatePinnedToCore(mp_task, "mp_task", MP_TASK_STACK_SIZE / sizeof(StackType_t), NULL, MP_TASK_PRIORITY, &mp_main_task_handle, MP_TASK_COREID);
 }
 
 void nlr_jump_fail(void *val) {

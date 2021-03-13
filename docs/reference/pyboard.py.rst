@@ -48,7 +48,9 @@ Running ``pyboard.py --help`` gives the following output:
                             available
       --follow              follow the output after running the scripts
                             [default if no scripts given]
-      -f, --filesystem      perform a filesystem action
+      -f, --filesystem      perform a filesystem action: cp local :device | cp
+                            :device local | cat path | ls [path] | rm path | mkdir
+                            path | rmdir path
 
 Running a command on the device
 -------------------------------
@@ -68,7 +70,7 @@ example::
     $ pyboard.py -c 'print(1+1)'
 
 Similarly, the ``PYBOARD_BAUDRATE`` environment variable can be used
-to set the default for the `--baudrate` option.
+to set the default for the ``--baudrate`` option.
 
 Running a script on the device
 ------------------------------
